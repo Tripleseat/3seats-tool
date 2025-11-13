@@ -648,7 +648,11 @@ autoFitWidths(rs,[1,2,4,5,7,9,10,11,12]);
 (function(){
   const CLIENT_ID="7010858919-jq4n8blq1b73o26pq3h4n0uk46roqfag.apps.googleusercontent.com";
   const TEMPLATE_ID="1ft0PuCB3EneQ8vW9lFv78c1KBC1giUOGTAmLsa8bETE";
-  const SCOPES="https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets";
+const SCOPES = [
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/spreadsheets"
+].join(" ");
 
   document.addEventListener("DOMContentLoaded",()=>{
     const b=document.getElementById("exportToSheetsBtn");

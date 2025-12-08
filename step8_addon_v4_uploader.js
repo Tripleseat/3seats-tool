@@ -218,7 +218,7 @@
     // Primary action button
     const btn=document.createElement("button");
     btn.type="button";
-    btn.textContent="Export to Google Sheet";
+    btn.textContent="⧉ Export to Google Sheet";
     btn.className="btn primary";
     row.appendChild(btn);
 

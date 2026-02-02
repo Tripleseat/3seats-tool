@@ -495,7 +495,9 @@ function setStatusBanner(msg){
           {val:'lower', label:'lower – hello world'},
           {val:'title', label:'title – Hello World'},
           {val:'digits-only', label:'digits-only – 12345'},
-          {val:'date:MM/DD/YYYY', label:'date → 12/31/2025 (MM/DD/YYYY)'}
+          {val:'date:MM/DD/YYYY', label:'date → 12/31/2025 (MM/DD/YYYY)'},
+          {val:'date:YYYY-MM-DD', label:'date → 2025-12-31 (YYYY-MM-DD)'},
+          {val:'date:DD/MM/YYYY', label:'date → 31/12/2025 (DD/MM/YYYY)'}
         ];
         options.forEach(o=>transform.add(new Option(o.label,o.val)));
         transform.value = (hdr === 'date') ? 'date:MM/DD/YYYY' : 'none';

@@ -463,11 +463,18 @@ function setStatusBanner(msg){
     let master={headers:MASTER_HEADERS,sheetName:'Events'};
     let customer={headers:[],rows:[],sourceKey:''};
     const $=id=>document.getElementById(id);
+    // Normalize header/value text from spreadsheets (handles NBSP and odd whitespace)
+    function cleanText_(v){
+      return String(v ?? '')
+        .replace(/ /g,' ')
+        .replace(/\s+/g,' ')
+        .trim();
+    }
     function toast(text,kind='info'){ const t=$('toast'); if(!t) return; t.textContent=text; t.style.display='block'; t.style.borderColor=kind==='error'?'#ff6b6b':(kind==='warn'?'#ffb020':'#2b3761'); setTimeout(()=>t.style.display='none',2200); }
     function log(kind,msg){ const el=$('exportMsg'); if(!el) return; el.className=kind; el.textContent=msg; }
 
-    function dedupeHeaders(arr){ const seen=new Map(); return arr.map(h=>{ let base=(h||'').trim()||'Column'; let key=base.toLowerCase(); if(!seen.has(key)){ seen.set(key,1); return base; } const n=seen.get(key); seen.set(key,n+1); return base+'_'+(n+1); }); }
-    function getHeadersFromSheet(ws){ const range=ws['!ref']?XLSX.utils.decode_range(ws['!ref']):null; if(!range) return []; const headers=[]; const R=range.s.r; for(let C=range.s.c; C<=range.e.c; ++C){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; let hdr=cell?String(cell.v).trim():''; headers.push(hdr);} while(headers.length && !headers[headers.length-1]) headers.pop(); return headers; }
+    function dedupeHeaders(arr){ const seen=new Map(); return arr.map(h=>{ let base=cleanText_(h)||'Column'; let key=base.toLowerCase(); if(!seen.has(key)){ seen.set(key,1); return base; } const n=seen.get(key); seen.set(key,n+1); return base+'_'+(n+1); }); }
+    function getHeadersFromSheet(ws){ const range=ws['!ref']?XLSX.utils.decode_range(ws['!ref']):null; if(!range) return []; const headers=[]; const R=range.s.r; for(let C=range.s.c; C<=range.e.c; ++C){ const cell=ws[XLSX.utils.encode_cell({r:R,c:C})]; let hdr=cell?cleanText_(cell.v):''; headers.push(hdr);} while(headers.length && !headers[headers.length-1]) headers.pop(); return headers; }
     function norm(str){ let s=String(str||'').toLowerCase(); s=s.replace(/[_-]+/g,' ').trim().replace(/\s+/g,' '); return s; }
     function squish(str){ return norm(str).replace(/\s+/g,''); }
     function guessMatch(masterHdr,chs){ const t=norm(masterHdr), ts=squish(masterHdr); let hit=chs.find(h=>norm(h)===t)||chs.find(h=>squish(h)===ts)||chs.find(h=>squish(h).includes(ts)||ts.includes(squish(h))); return hit||''; }
@@ -972,7 +979,54 @@ autoFitWidths(rs,[1,2,4,5,7,9,10,11,12]);
     function pill(t){ const s=document.createElement('span'); s.className='pill'; s.textContent=t; return s; }
     function updateUIAfterLoad(){ const btn=$('togglePreview'); if(btn){ btn.disabled=false; btn.onclick=()=>{ const p=$('preview'); const isOpen=!!(p && p.style.display!=='none'); if(p) p.style.display=isOpen?'none':'block'; btn.textContent=isOpen?'Show Preview':'Hide Preview'; }; const p0=$('preview'); btn.textContent= (p0&&p0.style.display!=='none')?'Hide Preview':'Show Preview'; } renderPreview(); buildMappingUI(); updateRoomsPreview(); initStatusMappingSection(); initRoomMappingSection(); initOwnerMappingSection(); const meta=$('customerMeta'); if(meta){ meta.style.display='flex'; meta.innerHTML=''; } }
 
-    function handleFile(f){ if(!window.XLSX){ log('danger','Excel parser not loaded.'); return; } const reader=new FileReader(); reader.onload=()=>{ try{ const data=new Uint8Array(reader.result); const wb=XLSX.read(data,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false}); let headers=getHeadersFromSheet(ws); headers=dedupeHeaders(headers); customer.headers=(headers||[]).map(h=>String(h||'').trim()); customer.rows=rows||[]; customer.sourceKey=`${f.name}|${wb.SheetNames[0]}|${customer.headers.join(',')}`.slice(0,500); const meta=$('customerMeta'); meta.style.display='flex'; meta.innerHTML=''; meta.appendChild(pill(`File: ${f.name}`)); meta.appendChild(pill(`Sheet: ${wb.SheetNames[0]}`)); meta.appendChild(pill(`${customer.headers.length} columns`)); meta.appendChild(pill(`${customer.rows.length} rows`)); updateUIAfterLoad(); }catch(err){ log('danger','Failed to read file: '+(err&&err.message?err.message:String(err))); } }; reader.onerror=()=>log('danger','File read error'); reader.readAsArrayBuffer(f); }
+    function handleFile(f){
+      if(!window.XLSX){ log('danger','Excel parser not loaded.'); return; }
+      const reader=new FileReader();
+      reader.onload=()=>{
+        try{
+          const data=new Uint8Array(reader.result);
+          const wb=XLSX.read(data,{type:'array'});
+          const sheetName=wb.SheetNames[0];
+          const ws=wb.Sheets[sheetName];
+
+          // Read as a 2D grid so we can normalize headers AND keep row keys aligned.
+          const grid=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+          const rawHeaders=(grid && grid.length)?(grid[0]||[]):[];
+          let headers=rawHeaders.map(h=>cleanText_(h));
+          headers=dedupeHeaders(headers);
+
+          const outRows=[];
+          for(let i=1;i<(grid?grid.length:0);i++){
+            const rowArr=grid[i]||[];
+            const obj={};
+            for(let c=0;c<headers.length;c++){
+              const key=headers[c];
+              if(!key) continue;
+              obj[key]=rowArr[c] ?? '';
+            }
+            // Skip fully-empty rows
+            if(Object.values(obj).some(v=>String(v).trim()!=='')) outRows.push(obj);
+          }
+
+          customer.headers=headers;
+          customer.rows=outRows;
+          customer.sourceKey=`${f.name}|${sheetName}|${customer.headers.join(',')}`.slice(0,500);
+
+          const meta=$('customerMeta');
+          meta.style.display='flex';
+          meta.innerHTML='';
+          meta.appendChild(pill(`File: ${f.name}`));
+          meta.appendChild(pill(`Sheet: ${sheetName}`));
+          meta.appendChild(pill(`${customer.headers.length} columns`));
+          meta.appendChild(pill(`${customer.rows.length} rows`));
+          updateUIAfterLoad();
+        }catch(err){
+          log('danger','Failed to read file: '+(err&&err.message?err.message:String(err)));
+        }
+      };
+      reader.onerror=()=>log('danger','File read error');
+      reader.readAsArrayBuffer(f);
+    }
 
     function wireDnD(){
       const drop=$('drop'); const input=$('customerFile'); const overlay=$('overlayPicker');
@@ -1079,6 +1133,13 @@ const SCOPES = [
   async function writeRAW(id,title,values){ await gapi.client.sheets.spreadsheets.values.update({spreadsheetId:id,range:`${title}!A1`,valueInputOption:"RAW",resource:{majorDimension:"ROWS",values}}); }
   async function writeUSER(id,title,values){ await gapi.client.sheets.spreadsheets.values.update({spreadsheetId:id,range:`${title}!A1`,valueInputOption:"USER_ENTERED",resource:{majorDimension:"ROWS",values}}); }
 
+  function cleanText(v){
+    return String(v ?? '')
+      .replace(/ /g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+
   function norm(s){ return String(s||'').toLowerCase().replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim(); }
 
   function getData(){
@@ -1093,12 +1154,12 @@ const SCOPES = [
     // 2) Fallback: scrape visible table (DOM)
     const t=document.querySelector('table'); if(!t) return null;
     const thead=t.querySelector('thead'), tbody=t.querySelector('tbody');
-    let headers=[]; if (thead) headers = Array.from(thead.querySelectorAll('th,td')).map(x=>x.textContent.trim());
+    let headers=[]; if (thead) headers = Array.from(thead.querySelectorAll('th,td')).map(x=>cleanText(x.textContent));
     const rowEls = tbody ? Array.from(tbody.querySelectorAll('tr')) : Array.from(t.querySelectorAll('tr'));
-    const bodyRows = rowEls.map(tr=>Array.from(tr.querySelectorAll('td,th')).map(td=>td.textContent.trim()));
+    const bodyRows = rowEls.map(tr=>Array.from(tr.querySelectorAll('td,th')).map(td=>cleanText(td.textContent)));
     if (!headers.length && bodyRows.length){ headers = bodyRows.shift(); }
     const seen={}; const H=headers.map(h=>{ let k=(h||'').trim()||'Column', b=k, i=1; while(seen[k]){ i++; k=`${b}_${i}`; } seen[k]=true; return k; });
-    const outRows = bodyRows.filter(r=>r.some(v=>v!=='')).map(r=>{ const o={}; for(let i=0;i<H.length;i++) o[H[i]]=(r[i]??'').trim(); return o; });
+    const outRows = bodyRows.filter(r=>r.some(v=>v!=='')).map(r=>{ const o={}; for(let i=0;i<H.length;i++) o[H[i]]=cleanText(r[i]??''); return o; });
     return { headersOut:H, outRows, source:'dom' };
   }
 
